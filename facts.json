@@ -1,15 +1,29 @@
-
 {
-  "facts": [
-    "C es uno de los lenguajes de programación más antiguos y todavía se usa ampliamente. Fue desarrollado en 1972 por Dennis Ritchie en los Laboratorios Bell.",
-    "El núcleo (kernel) de sistemas operativos como Linux, Windows y macOS está escrito en gran parte en C.",
-    "C fue el primer lenguaje en introducir el concepto de 'portabilidad', lo que significa que su código puede ser compilado y ejecutado en diferentes máquinas con pocas o ninguna modificación.",
-    "El popular sistema de control de versiones 'Git' fue escrito originalmente por Linus Torvalds en C.",
-    "A diferencia de lenguajes más modernos, C no tiene un sistema de recolección de basura. El programador es responsable de asignar y liberar la memoria manualmente usando funciones como malloc() y free().",
-    "El primer compilador de C++ (Cfront) fue implementado en C.",
-    "El estándar oficial para el lenguaje C es mantenido por la Organización Internacional de Normalización (ISO).",
-    "Muchos otros lenguajes de programación como C++, C#, Python, y PHP toman prestada sintaxis y conceptos de C.",
-    "El famoso juego 'Doom' (1993) fue programado casi en su totalidad en C.",
-    "La función printf() no es parte del núcleo del lenguaje C, sino de su biblioteca estándar (stdio.h)."
-  ]
+    "facts": [
+        "C es uno de los lenguajes de programación más antiguos y todavía se usa ampliamente. Fue desarrollado en 1972 por Dennis Ritchie en los Laboratorios Bell.",
+        "El núcleo (kernel) de sistemas operativos como Linux, Windows y macOS está escrito en gran parte en C.",
+        "C fue el primer lenguaje en introducir el concepto de 'portabilidad', lo que significa que su código puede ser compilado y ejecutado en diferentes máquinas con pocas o ninguna modificación.",
+        "El popular sistema de control de versiones 'Git' fue escrito originalmente por Linus Torvalds en C.",
+        "A diferencia de lenguajes más modernos, C no tiene un sistema de recolección de basura. El programador es responsable de asignar y liberar la memoria manualmente usando funciones como malloc() y free().",
+        "El primer compilador de C++ (Cfront) fue implementado en C.",
+        "El estándar oficial para el lenguaje C es mantenido por la Organización Internacional de Normalización (ISO).",
+        "Muchos otros lenguajes de programación como C++, C#, Python, y PHP toman prestada sintaxis y conceptos de C.",
+        "El famoso juego 'Doom' (1993) fue programado casi en su totalidad en C.",
+        "La función printf() no es parte del núcleo del lenguaje C, sino de su biblioteca estándar (stdio.h).",
+        "C fue creado por Dennis Ritchie en Bell Labs entre 1972 y 1973.",
+        "El propósito original de C era desarrollar el sistema operativo UNIX.",
+        "El famoso libro \"The C Programming Language\" de Kernighan y Ritchie (K&R) fue la especificación informal del lenguaje durante años.",
+        "C es considerado un lenguaje de \"nivel medio\" porque combina la facilidad de un lenguaje de alto nivel con el control de bajo nivel del ensamblador.",
+        "La portabilidad de C fue clave para su éxito, permitiendo que el kernel de UNIX se portara a muchas arquitecturas de computadoras.",
+        "El primer estándar oficial de C, conocido como ANSI C o C89, no se publicó hasta 1989.",
+        "A diferencia de lenguajes más modernos, C no tiene clases ni objetos de forma nativa; es un lenguaje puramente procedural.",
+        "El concepto de \"punteros\" en C, que permite el acceso directo a la memoria, es una de sus características más potentes y complejas.",
+        "C permite la gestión dinámica de memoria a través de funciones como malloc() y free(), dando al programador control total (y responsabilidad) sobre la memoria.",
+        "La sintaxis de C ha influenciado a una enorme cantidad de lenguajes posteriores, incluyendo C++, C#, Java, JavaScript y Python.",
+        "La palabra clave `volatile` en C se usa para indicar a un compilador que el valor de una variable puede cambiar en cualquier momento sin ninguna acción por parte del código que el compilador conoce, útil para registros de hardware.",
+        "En C, los strings son simplemente arrays de caracteres que terminan con un carácter nulo (`\\0`).",
+        "La función `printf` no es una palabra clave del lenguaje, sino parte de la biblioteca estándar (stdio.h).",
+        "C no tiene un tipo de dato booleano nativo. Históricamente, se usaban enteros (0 para falso y cualquier otro valor para verdadero) hasta que el estándar C99 introdujo el header `<stdbool.h>`.",
+        "La directiva `#pragma` es una característica del preprocesador de C que se utiliza para emitir comandos específicos para el compilador, y su comportamiento puede variar entre diferentes compiladores."
+    ]
 }
