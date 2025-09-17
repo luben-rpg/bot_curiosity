@@ -3,16 +3,15 @@ import logging
 import json
 import random
 import asyncio
-import logging
-import sys
+import sqlite3
 
 from datetime import time, datetime
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse, HTMLResponse
 from contextlib import asynccontextmanager
-from telegram import Update, Bot
-from telegram.ext import Application, CommandHandler, ContextTypes, CallbackContext
+from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, ContextTypes, CallbackContext, CallbackQueryHandler
 from telegram.error import Forbidden, NetworkError
 
 
@@ -32,7 +31,8 @@ logger = logging.getLogger(__name__)
 
 # Configuración
 CONFIG_FILE = 'config.json'
-FACTS_FILE = 'facts.json'
+FACTS_JSON_FILE = 'facts.json' # Renombrado para claridad
+DATABASE_FILE = 'facts.db'
 LOCK_FILE = 'bot.lock'
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Ej: https://tudominio.com
@@ -44,63 +44,100 @@ telegram_app = None
 
 class BotManager:
     def __init__(self):
-        self.config = self.load_json(CONFIG_FILE)
-        self.facts_data = self.load_json(FACTS_FILE)
+        self.config = self._load_config()
+        self._init_db()
         
-    def load_json(self, file_path):
+    def _load_config(self):
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                config_data = json.load(f)
+                # Asegurar que configured_chat_ids sea una lista
+                if 'configured_chat_ids' not in config_data or not isinstance(config_data['configured_chat_ids'], list):
+                    config_data['configured_chat_ids'] = []
+                return config_data
         except (FileNotFoundError, json.JSONDecodeError):
-            if file_path == FACTS_FILE:
-                return {"facts": []}
-            return {}
+            return {'configured_chat_ids': []}
     
-    def save_json(self, data, file_path):
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
-    
-    async def is_user_admin(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-        if update.effective_chat.type == 'private':
-            return True
-        
-        user_id = update.effective_user.id
-        chat_id = update.effective_chat.id
+    def _save_config(self):
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(self.config, f, indent=4, ensure_ascii=False)
 
-        try:
-            chat_admins = await context.bot.get_chat_administrators(chat_id)
-            return any(admin.user.id == user_id for admin in chat_admins)
-        except Exception as e:
-            logger.error(f"Error al verificar administradores en {chat_id}: {e}")
+    def _get_db_connection(self):
+        conn = sqlite3.connect(DATABASE_FILE)
+        conn.row_factory = sqlite3.Row # Permite acceder a las columnas por nombre
+        return conn
+
+    def _init_db(self):
+        conn = self._get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("CREATE TABLE IF NOT EXISTS facts (id INTEGER PRIMARY KEY, fact_text TEXT NOT NULL UNIQUE)")
+        conn.commit()
+
+        # Migrar datos de facts.json si existen y la DB está vacía
+        cursor.execute("SELECT COUNT(*) FROM facts")
+        db_fact_count = cursor.fetchone()[0]
+
+        if db_fact_count == 0 and os.path.exists(FACTS_JSON_FILE):
+            logger.info(f"Migrando curiosidades de {FACTS_JSON_FILE} a la base de datos.")
+            try:
+                with open(FACTS_JSON_FILE, 'r', encoding='utf-8') as f:
+                    json_data = json.load(f)
+                facts_to_migrate = json_data.get('facts', [])
+                
+                for fact in facts_to_migrate:
+                    try:
+                        cursor.execute("INSERT INTO facts (fact_text) VALUES (?)", (fact,))
+                    except sqlite3.IntegrityError: # Manejar duplicados si los hubiera
+                        logger.warning(f"Curiosidad duplicada no insertada: {fact[:50]}...")
+                conn.commit()
+                logger.info(f"Migración completada. {len(facts_to_migrate)} curiosidades migradas.")
+                os.remove(FACTS_JSON_FILE) # Eliminar el archivo JSON después de la migración
+                logger.info(f"Archivo {FACTS_JSON_FILE} eliminado.")
+            except (FileNotFoundError, json.JSONDecodeError) as e:
+                logger.error(f"Error al migrar {FACTS_JSON_FILE}: {e}")
+        conn.close()
+
+    async def is_user_admin(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+        owner_id = self.config.get('owner_id')
+        if owner_id is None:
+            # If owner_id is not set, no one is admin yet. The first user to call /start will become the admin.
             return False
+        
+        return update.effective_user.id == owner_id
 
     async def send_fact(self, context: CallbackContext):
-        chat_id = self.config.get('chat_id')
-        if not chat_id:
-            logger.warning("Job ejecutado pero no hay chat_id configurado.")
+        configured_chat_ids = self.config.get('configured_chat_ids', [])
+        if not configured_chat_ids:
+            logger.warning("Job ejecutado pero no hay chat_id configurado en configured_chat_ids.")
             return
 
-        facts = self.facts_data.get('facts', [])
-        if not facts:
-            logger.warning("No se encontraron curiosidades en facts.json")
+        conn = self._get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT fact_text FROM facts ORDER BY RANDOM() LIMIT 1")
+        fact_row = cursor.fetchone()
+        conn.close()
+
+        if not fact_row:
+            logger.warning("No se encontraron curiosidades en la base de datos.")
+            # Consider sending a message to active_chat_id if no facts are available
             return
 
-        fact = random.choice(facts)
+        fact = fact_row['fact_text']
         
-        try:
-            await context.bot.send_message(
-                chat_id=chat_id, 
-                text=f"📚 **Curiosidad sobre C**\n\n{fact}\n\n_🕐 {datetime.now().strftime('%H:%M')}_",
-                parse_mode='Markdown'
-            )
-            logger.info(f"Curiosidad enviada al chat {chat_id}")
-        except Forbidden:
-            logger.error(f"Error: Bot bloqueado en el chat {chat_id}")
-            self.config.pop('chat_id', None)
-            self.save_json(self.config, CONFIG_FILE)
-            await self.remove_all_jobs(context.application)
-        except Exception as e:
-            logger.error(f"Error al enviar mensaje: {e}")
+        for chat_id in configured_chat_ids:
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id, 
+                    text=f"📚 **Curiosidad sobre C**\n\n{fact}\n\n_🕐 {datetime.now().strftime('%H:%M')}_",
+                    parse_mode='Markdown'
+                )
+                logger.info(f"Curiosidad enviada al chat {chat_id}")
+            except Forbidden:
+                logger.error(f"Error: Bot bloqueado en el chat {chat_id}. Eliminando de la lista.")
+                self.config['configured_chat_ids'].remove(chat_id)
+                self._save_config()
+            except Exception as e:
+                logger.error(f"Error al enviar mensaje al chat {chat_id}: {e}")
 
     async def remove_all_jobs(self, application: Application):
         """Elimina todos los jobs programados"""
@@ -132,123 +169,181 @@ class BotManager:
             )
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if not await self.is_user_admin(update, context):
-            await update.message.reply_text("❌ Solo los administradores pueden configurar este bot.")
-            return
-
+        user_id = update.effective_user.id
         chat_id = update.effective_chat.id
         
-        if self.config.get('chat_id') == chat_id:
-            await update.message.reply_text(
-                "✅ El bot ya está activo en este chat.\n\n"
-                "📅 Enviando 8 curiosidades diarias sobre C a las:\n"
-                "• 12:00 AM / PM 🌅\n"
-                "• 6:00 AM / PM  ☀️\n"
-                "• 3:00 PM / PM ☀️\n" 
-                "• 9:00 PM / AM 🌙\n\n"
-                "Usa /stop para detener el bot."
-            )
+        # If owner_id is not set, the current user becomes the owner
+        if self.config.get('owner_id') is None:
+            self.config['owner_id'] = user_id
+            self._save_config() # Save immediately so other checks work
+            logger.info(f"Owner ID set to {user_id}")
+        
+        # Now, check if the current user is the owner
+        if not await self.is_user_admin(update, context):
+            await update.message.reply_text("❌ Solo el propietario del bot puede configurar esto.")
             return
 
-        self.config['chat_id'] = chat_id
-        self.config['admin_id'] = update.effective_user.id
+        # Add current chat to configured_chat_ids if not already there
+        if chat_id not in self.config['configured_chat_ids']:
+            self.config['configured_chat_ids'].append(chat_id)
+            await update.message.reply_text(f"✅ Este chat ({chat_id}) ha sido añadido a la lista de publicación.")
+        
+        self.config['active_chat_id'] = chat_id # Set current chat as active
         self.config['setup_date'] = datetime.now().isoformat()
-        self.save_json(self.config, CONFIG_FILE)
+        self._save_config()
 
         await self.setup_daily_jobs(context.application)
 
         await update.message.reply_text(
-            "🚀 **Bot activado exitosamente!**\n\n"
-            "📚 A partir de ahora enviaré 8 curiosidades diarias sobre el lenguaje C:\n"
-            "• 12:00 AM / PM 🌅\n"
-            "• 6:00 AM / PM  ☀️\n"
-            "• 3:00 PM / PM ☀️\n" 
-            "• 9:00 PM / AM 🌙\n\n"
-            "💡 _Solo administradores pueden modificar esta configuración._\n"
+            "🚀 **Bot activado exitosamente!**\n\n" 
+            "📚 A partir de ahora enviaré 8 curiosidades diarias sobre el lenguaje C a los chats configurados.\n" 
+            "💡 _Solo el propietario del bot puede modificar esta configuración._\n" 
             "❌ Usa /stop para detener el bot.",
             parse_mode='Markdown'
         )
-        logger.info(f"Bot configurado por admin {update.effective_user.id} en chat {chat_id}")
+        logger.info(f"Bot configurado por propietario {user_id} en chat {chat_id}")
 
     async def stop_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self.is_user_admin(update, context):
-            await update.message.reply_text("❌ Solo los administradores pueden detener este bot.")
+            await update.message.reply_text("❌ Solo el propietario del bot puede detener este bot.")
             return
 
         chat_id = update.effective_chat.id
         
-        if self.config.get('chat_id') != chat_id:
-            await update.message.reply_text("ℹ️ El bot no está activo en este chat.")
-            return
+        if chat_id in self.config['configured_chat_ids']:
+            self.config['configured_chat_ids'].remove(chat_id)
+            await update.message.reply_text(f"🛑 Este chat ({chat_id}) ha sido eliminado de la lista de publicación.")
+        
+        if self.config.get('active_chat_id') == chat_id:
+            self.config.pop('active_chat_id', None)
 
-        self.config.pop('chat_id', None)
-        self.config.pop('admin_id', None)
-        self.save_json(self.config, CONFIG_FILE)
+        self._save_config()
 
-        await self.remove_all_jobs(context.application)
-
-        await update.message.reply_text(
-            "🛑 **Bot detenido exitosamente!**\n\n"
-            "📚 Ya no enviaré curiosidades diarias sobre C.\n"
-            "🚀 Usa /start para reactivar cuando quieras.",
-            parse_mode='Markdown'
-        )
-        logger.info(f"Bot detenido por admin {update.effective_user.id} en chat {chat_id}")
+        # Si no quedan chats configurados, detener los jobs
+        if not self.config['configured_chat_ids']:
+            await self.remove_all_jobs(context.application)
+            await update.message.reply_text(
+                "🛑 **Bot detenido completamente!**\n\n" 
+                "📚 Ya no enviaré curiosidades diarias sobre C a ningún chat.\n" 
+                "🚀 Usa /start en un chat para reactivar cuando quieras.",
+                parse_mode='Markdown'
+            )
+            logger.info(f"Bot detenido completamente por propietario {update.effective_user.id}")
+        else:
+            await update.message.reply_text(
+                "🛑 **Bot detenido en este chat!**\n\n" 
+                "📚 Seguiré enviando curiosidades a los otros chats configurados.\n" 
+                "🚀 Usa /start en este chat para reactivar cuando quieras.",
+                parse_mode='Markdown'
+            )
+            logger.info(f"Bot detenido en chat {chat_id} por propietario {update.effective_user.id}")
 
     async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self.is_user_admin(update, context):
-            await update.message.reply_text("❌ Solo los administradores pueden ver el estado.")
+            await update.message.reply_text("❌ Solo el propietario del bot puede ver el estado.")
             return
 
         chat_id = update.effective_chat.id
-        is_active = self.config.get('chat_id') == chat_id
+        is_active_in_this_chat = chat_id in self.config.get('configured_chat_ids', [])
         
-        status_text = "✅ **ACTIVO**" if is_active else "❌ **INACTIVO**"
+        status_text = "✅ **ACTIVO**" if is_active_in_this_chat else "❌ **INACTIVO**"
         setup_date = self.config.get('setup_date', 'No configurado')
+        owner_id = self.config.get('owner_id', 'No configurado')
+
+        conn = self._get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM facts")
+        total_facts = cursor.fetchone()[0]
+        conn.close()
         
+        configured_chats_str = ", ".join(map(str, self.config.get('configured_chat_ids', []))) if self.config.get('configured_chat_ids') else "Ninguno"
+
         await update.message.reply_text(
-            f"📊 **Estado del Bot**\n\n"
-            f"• Estado: {status_text}\n"
-            f"• Chat ID: {chat_id}\n"
-            f"• Fecha configuración: {setup_date}\n"
-            f"• Curiosidades disponibles: {len(self.facts_data.get('facts', []))}\n\n"
-            f"🛠️ _Comandos disponibles:_\n"
-            f"/start - Activar bot\n"
-            f"/stop - Detener bot\n"
-            f"/status - Ver estado\n"
-            f"/addfact [curiosidad] - Añadir curiosidad",
+            f"📊 **Estado del Bot**\n\n" 
+            f"• Propietario: {owner_id}\n" 
+            f"• Estado en este chat: {status_text}\n" 
+            f"• Chat ID actual: {chat_id}\n" 
+            f"• Chats configurados: {configured_chats_str}\n" 
+            f"• Fecha configuración: {setup_date}\n" 
+            f"• Curiosidades disponibles: {total_facts}\n\n" 
+            f"🛠️ _Comandos disponibles:_
+" 
+            f"/start - Activar bot en este chat
+" 
+            f"/stop - Detener bot en este chat
+" 
+            f"/status - Ver estado
+" 
+            f"/addfact [curiosidad] - Añadir curiosidad
+" 
+            f"/listchats - Listar chats configurados
+" 
+            f"/config - Menú de configuración",
             parse_mode='Markdown'
         )
 
     async def addfact_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self.is_user_admin(update, context):
-            await update.message.reply_text("❌ Solo los administradores pueden añadir curiosidades.")
+            await update.message.reply_text("❌ Solo el propietario del bot puede añadir curiosidades.")
             return
 
         try:
-            fact_text = context.args
-            if not fact_text:
-                raise IndexError
-            
-            fact_text = " ".join(fact_text)
-            
-            # Reload facts data to avoid overwriting
-            self.facts_data = self.load_json(FACTS_FILE)
-            
-            if 'facts' not in self.facts_data:
-                self.facts_data['facts'] = []
+            if not context.args:
+                raise IndexError # No arguments provided
 
-            self.facts_data['facts'].append(fact_text)
-            self.save_json(self.facts_data, FACTS_FILE)
+            # Join all arguments into a single string, then split by delimiter
+            input_text = " ".join(context.args)
+            facts_to_add = [f.strip() for f in input_text.split('---') if f.strip()] # Split by '---' and clean up
 
-            await update.message.reply_text("✅ ¡Curiosidad añadida con éxito!")
-            logger.info(f"Nueva curiosidad añadida por {update.effective_user.id}: {fact_text}")
+            if not facts_to_add:
+                raise IndexError # No valid facts found after splitting
+
+            conn = self._get_db_connection()
+            cursor = conn.cursor()
+            added_count = 0
+            skipped_count = 0
+
+            for fact_text in facts_to_add:
+                try:
+                    cursor.execute("INSERT INTO facts (fact_text) VALUES (?)", (fact_text,))
+                    conn.commit()
+                    added_count += 1
+                except sqlite3.IntegrityError:
+                    skipped_count += 1
+                    logger.warning(f"Curiosidad duplicada no insertada: {fact_text[:50]}...")
+            
+            conn.close()
+
+            response_message = "✅ ¡Operación completada!\n"
+            if added_count > 0:
+                response_message += f"Se añadieron {added_count} curiosidades nuevas.\n"
+            if skipped_count > 0:
+                response_message += f"Se omitieron {skipped_count} curiosidades (ya existían).\n"
+            
+            await update.message.reply_text(response_message)
+            logger.info(f"Curiosidades añadidas por {update.effective_user.id}: {added_count} nuevas, {skipped_count} omitidas.")
 
         except IndexError:
-            await update.message.reply_text("⚠️ Por favor, proporciona un dato curioso después del comando.\nEjemplo: `/addfact C es un lenguaje compilado.`", parse_mode='Markdown')
+            await update.message.reply_text("⚠️ Por favor, proporciona una o varias curiosidades después del comando.\nSepara cada curiosidad con `---`.\nEjemplo: `/addfact Curiosidad 1 --- Curiosidad 2 --- Curiosidad 3`", parse_mode='Markdown')
         except Exception as e:
             logger.error(f"Error en addfact_command: {e}")
             await update.message.reply_text("❌ Ocurrió un error al añadir la curiosidad.")
+
+    async def list_chats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self.is_user_admin(update, context):
+            await update.message.reply_text("❌ Solo el propietario del bot puede listar los chats.")
+            return
+        
+        configured_chat_ids = self.config.get('configured_chat_ids', [])
+        if not configured_chat_ids:
+            await update.message.reply_text("No hay chats configurados para la publicación.")
+            return
+        
+        chat_list_str = "Chats configurados para publicación:\n"
+        for chat_id in configured_chat_ids:
+            chat_list_str += f"- `{chat_id}`\n"
+        
+        await update.message.reply_text(chat_list_str, parse_mode='Markdown')
 
     async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error: {context.error}", exc_info=context.error)
@@ -258,9 +353,85 @@ class BotManager:
                 "❌ Ocurrió un error inesperado. Por favor, intenta nuevamente."
             )
 
+    async def config_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self.is_user_admin(update, context):
+            await update.message.reply_text("❌ Solo el propietario del bot puede acceder al menú de configuración.")
+            return
+
+        keyboard = [
+            [InlineKeyboardButton("Ver Estado", callback_data='config_status')],
+            [InlineKeyboardButton("Añadir Curiosidad", callback_data='config_addfact')],
+            [InlineKeyboardButton("Gestionar Chats", callback_data='config_manage_chats')],
+            [InlineKeyboardButton("Detener Bot en este Chat", callback_data='config_stop')],
+            [InlineKeyboardButton("Activar Bot en este Chat", callback_data='config_start')],
+            [InlineKeyboardButton("Cerrar Menú", callback_data='config_close')],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text('Menú de Configuración:', reply_markup=reply_markup)
+
+    async def manage_chats_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self.is_user_admin(update, context):
+            await update.message.reply_text("❌ Solo el propietario del bot puede gestionar chats.")
+            return
+
+        keyboard = [
+            [InlineKeyboardButton("Listar Chats", callback_data='manage_chats_list')],
+            [InlineKeyboardButton("Añadir Chat Actual", callback_data='manage_chats_add_current')],
+            [InlineKeyboardButton("Eliminar Chat Actual", callback_data='manage_chats_remove_current')],
+            [InlineKeyboardButton("Volver al Menú Principal", callback_data='config_menu_main')],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text('Menú de Gestión de Chats:', reply_markup=reply_markup)
+
+    async def callback_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer() # Acknowledge the query
+
+        if not await self.is_user_admin(update, context):
+            await query.edit_message_text("❌ No tienes permiso para realizar esta acción.")
+            return
+
+        action = query.data
+        chat_id = update.effective_chat.id
+
+        if action == 'config_status':
+            await self.status_command(update, context)
+        elif action == 'config_addfact':
+            await query.edit_message_text("Para añadir una curiosidad, usa el comando: `/addfact [tu curiosidad aquí]`\nSepara múltiples curiosidades con `---`.", parse_mode='Markdown')
+        elif action == 'config_manage_chats':
+            await self.manage_chats_menu(update, context)
+        elif action == 'config_stop':
+            await self.stop_command(update, context)
+        elif action == 'config_start':
+            await self.start_command(update, context)
+        elif action == 'config_close':
+            await query.edit_message_text("Menú cerrado.")
+        elif action == 'manage_chats_list':
+            await self.list_chats_command(update, context)
+        elif action == 'manage_chats_add_current':
+            if chat_id not in self.config['configured_chat_ids']:
+                self.config['configured_chat_ids'].append(chat_id)
+                self._save_config()
+                await query.edit_message_text(f"✅ Este chat ({chat_id}) ha sido añadido a la lista de publicación.")
+            else:
+                await query.edit_message_text(f"ℹ️ Este chat ({chat_id}) ya está en la lista de publicación.")
+        elif action == 'manage_chats_remove_current':
+            if chat_id in self.config['configured_chat_ids']:
+                self.config['configured_chat_ids'].remove(chat_id)
+                self._save_config()
+                await query.edit_message_text(f"🛑 Este chat ({chat_id}) ha sido eliminado de la lista de publicación.")
+                # Si el chat eliminado era el activo, desconfigurarlo
+                if self.config.get('active_chat_id') == chat_id:
+                    self.config.pop('active_chat_id', None)
+                    self._save_config()
+            else:
+                await query.edit_message_text(f"ℹ️ Este chat ({chat_id}) no está en la lista de publicación.")
+        elif action == 'config_menu_main':
+            await self.config_menu(update, context)
+
 # Lifespan events para FastAPI
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+def lifespan(app: FastAPI):
     if os.path.exists(LOCK_FILE):
         logger.error("Lock file exists. Another instance is likely running. Exiting.")
         raise RuntimeError("Lock file exists, exiting.")
@@ -285,6 +456,9 @@ async def lifespan(app: FastAPI):
     telegram_app.add_handler(CommandHandler("stop", bot_manager.stop_command))
     telegram_app.add_handler(CommandHandler("status", bot_manager.status_command))
     telegram_app.add_handler(CommandHandler("addfact", bot_manager.addfact_command))
+    telegram_app.add_handler(CommandHandler("listchats", bot_manager.list_chats_command)) # Nuevo handler
+    telegram_app.add_handler(CommandHandler("config", bot_manager.config_menu)) 
+    telegram_app.add_handler(CallbackQueryHandler(bot_manager.callback_handler)) 
     telegram_app.add_error_handler(bot_manager.error_handler)
     
     # Configurar webhook si está configurado
@@ -296,7 +470,7 @@ async def lifespan(app: FastAPI):
         )
         
         # Configurar jobs si ya hay un chat configurado
-        if bot_manager.config.get('chat_id'):
+        if bot_manager.config.get('chat_id'): # This is now active_chat_id, but still works for initial setup
             await bot_manager.setup_daily_jobs(telegram_app)
     else:
         logger.info("Modo polling activado (sin webhook")
@@ -345,15 +519,21 @@ async def health_check():
 
 @app.get("/status")
 async def get_status():
-    config = bot_manager.load_json(CONFIG_FILE)
-    facts = bot_manager.load_json(FACTS_FILE)
+    config = bot_manager._load_config()
     
+    conn = bot_manager._get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM facts")
+    total_facts = cursor.fetchone()[0]
+    conn.close()
+
     return {
-        "active": bool(config.get('chat_id')),
-        "chat_id": config.get('chat_id'),
-        "admin_id": config.get('admin_id'),
+        "active": bool(config.get('active_chat_id')),
+        "owner_id": config.get('owner_id'),
+        "active_chat_id": config.get('active_chat_id'),
+        "configured_chat_ids": config.get('configured_chat_ids', []),
         "setup_date": config.get('setup_date'),
-        "total_facts": len(facts.get('facts', [])),
+        "total_facts": total_facts,
         "webhook_configured": bool(WEBHOOK_URL)
     }
 
@@ -372,42 +552,56 @@ async def telegram_webhook(request: Request):
         await telegram_app.process_update(update)
         return {"status": "ok"}
     except Exception as e:
-        logger.error(f"Error procesando webhook: {e}")
+        logger.exception("Error procesando webhook") # Changed to logger.exception
         raise HTTPException(status_code=500, detail="Error interno")
 
 @app.post("/send-test")
 async def send_test_message():
     """Endpoint para enviar un mensaje de prueba"""
-    config = bot_manager.load_json(CONFIG_FILE)
-    chat_id = config.get('chat_id')
+    config = bot_manager._load_config()
+    configured_chat_ids = config.get('configured_chat_ids', [])
     
-    if not chat_id:
-        raise HTTPException(status_code=400, detail="No hay chat configurado")
+    if not configured_chat_ids:
+        raise HTTPException(status_code=400, detail="No hay chats configurados para enviar mensajes.")
     
-    facts = bot_manager.load_json(FACTS_FILE).get('facts', [])
-    if not facts:
+    conn = bot_manager._get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT fact_text FROM facts ORDER BY RANDOM() LIMIT 1")
+    fact_row = cursor.fetchone()
+    conn.close()
+
+    if not fact_row:
         raise HTTPException(status_code=400, detail="No hay curiosidades disponibles")
     
-    fact = random.choice(facts)
+    fact = fact_row['fact_text']
     
-    try:
-        await telegram_app.bot.send_message(
-            chat_id=chat_id,
-            text=f"🧪 **Mensaje de prueba**\n\n{fact}\n\n_✅ Bot funcionando correctamente_",
-            parse_mode='Markdown'
-        )
-        return {"status": "success", "message": "Mensaje de prueba enviado"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error enviando mensaje: {e}")
+    for chat_id in configured_chat_ids:
+        try:
+            await telegram_app.bot.send_message(
+                chat_id=chat_id,
+                text=f"🧪 **Mensaje de prueba**\n\n{fact}\n\n_✅ Bot funcionando correctamente_",
+                parse_mode='Markdown'
+            )
+            logger.info(f"Mensaje de prueba enviado al chat {chat_id}")
+        except Exception as e:
+            logger.error(f"Error enviando mensaje de prueba al chat {chat_id}: {e}")
+            
+    return {"status": "success", "message": "Mensaje de prueba enviado a los chats configurados"}
 
 # Página HTML simple para ver el estado
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard():
-    config = bot_manager.load_json(CONFIG_FILE)
-    facts = bot_manager.load_json(FACTS_FILE)
+    config = bot_manager._load_config()
     
-    status = "🟢 ACTIVO" if config.get('chat_id') else "🔴 INACTIVO"
-    
+    conn = bot_manager._get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM facts")
+    total_facts = cursor.fetchone()[0]
+    conn.close()
+
+    status = "🟢 ACTIVO" if config.get('active_chat_id') else "🔴 INACTIVO"
+    configured_chats_str = ", ".join(map(str, config.get('configured_chat_ids', []))) if config.get('configured_chat_ids') else "Ninguno"
+
     html_content = f"""
     <html>
         <head>
@@ -423,11 +617,12 @@ async def dashboard():
             <h1>🤖 Dashboard - Bot de Curiosidades de C</h1>
             
             <div class="card">
-                <h2>Estado del Bot: <span class="{ 'active' if config.get('chat_id') else 'inactive' }">{status}</span></h2>
-                <p><strong>Chat ID:</strong> {config.get('chat_id', 'No configurado')}</p>
-                <p><strong>Admin ID:</strong> {config.get('admin_id', 'No configurado')}</p>
+                <h2>Estado del Bot: <span class="{ 'active' if config.get('active_chat_id') else 'inactive' }">{status}</span></h2>
+                <p><strong>Propietario ID:</strong> {config.get('owner_id', 'No configurado')}</p>
+                <p><strong>Chat ID Activo:</strong> {config.get('active_chat_id', 'No configurado')}</p>
+                <p><strong>Chats Configurados:</strong> {configured_chats_str}</p>
                 <p><strong>Fecha configuración:</strong> {config.get('setup_date', 'No configurado')}</p>
-                <p><strong>Curiosidades disponibles:</strong> {len(facts.get('facts', []))}</p>
+                <p><strong>Curiosidades disponibles:</strong> {total_facts}</p>
                 <p><strong>Webhook:</strong> {'🟢 CONFIGURADO' if WEBHOOK_URL else '🔴 NO CONFIGURADO'}</p>
             </div>
             
@@ -435,6 +630,7 @@ async def dashboard():
                 <h2>Acciones</h2>
                 <p><a href="/health">✅ Health Check</a></p>
                 <p><a href="/status">📊 Estado JSON</a></p>
+                <p><a href="/send-test">🧪 Enviar Mensaje de Prueba</a></p>
             </div>
         </body>
     </html>
