@@ -446,6 +446,8 @@ class BotManager:
 async def _setup_telegram_app(app_instance: Application, bot_manager_instance: BotManager):
     if WEBHOOK_URL:
         logger.info(f"Configurando webhook: {WEBHOOK_URL}/webhook")
+        logger.info(f"Valor de WEBHOOK_URL: {WEBHOOK_URL}")
+        logger.info(f"Valor de TELEGRAM_TOKEN (primeros 5 chars): {TELEGRAM_TOKEN[:5] if TELEGRAM_TOKEN else 'N/A'}")
         try:
             await app_instance.bot.set_webhook(
                 url=f"{WEBHOOK_URL}/webhook",
