@@ -259,26 +259,22 @@ class BotManager:
         configured_chats_str = ", ".join(map(str, self.config.get('configured_chat_ids', []))) if self.config.get('configured_chat_ids') else "Ninguno"
 
         await update.message.reply_text(
-            f"📊 **Estado del Bot**\n\n" 
-            f"• Propietario: {owner_id}\n" 
-            f"• Estado en este chat: {status_text}\n" 
-            f"• Chat ID actual: {chat_id}\n" 
-            f"• Chats configurados: {configured_chats_str}\n" 
-            f"• Fecha configuración: {setup_date}\n" 
-            f"• Curiosidades disponibles: {total_facts}\n\n" 
-            f"🛠️ _Comandos disponibles:_
-" 
-            f"/start - Activar bot en este chat
-" 
-            f"/stop - Detener bot en este chat
-" 
-            f"/status - Ver estado
-" 
-            f"/addfact [curiosidad] - Añadir curiosidad
-" 
-            f"/listchats - Listar chats configurados
-" 
-            f"/config - Menú de configuración",
+            f"""📊 **Estado del Bot**
+
+• Propietario: {owner_id}
+• Estado en este chat: {status_text}
+• Chat ID actual: {chat_id}
+• Chats configurados: {configured_chats_str}
+• Fecha configuración: {setup_date}
+• Curiosidades disponibles: {total_facts}
+
+🛠️ _Comandos disponibles:_
+/start - Activar bot en este chat
+/stop - Detener bot en este chat
+/status - Ver estado
+/addfact [curiosidad] - Añadir curiosidad
+/listchats - Listar chats configurados
+/config - Menú de configuración""",
             parse_mode='Markdown'
         )
 
@@ -305,7 +301,7 @@ class BotManager:
 
             for fact_text in facts_to_add:
                 try:
-                    cursor.execute("INSERT INTO facts (fact_text) VALUES (?)", (fact_text,))
+                    cursor.execute("INSERT INTO facts (fact_text) VALUES (?) ", (fact_text,))
                     conn.commit()
                     added_count += 1
                 except sqlite3.IntegrityError:
@@ -314,7 +310,7 @@ class BotManager:
             
             conn.close()
 
-            response_message = "✅ ¡Operación completada!\n"
+            response_message = f"✅ ¡Operación completada!\n"
             if added_count > 0:
                 response_message += f"Se añadieron {added_count} curiosidades nuevas.\n"
             if skipped_count > 0:
@@ -617,7 +613,7 @@ async def dashboard():
             <h1>🤖 Dashboard - Bot de Curiosidades de C</h1>
             
             <div class="card">
-                <h2>Estado del Bot: <span class="{ 'active' if config.get('active_chat_id') else 'inactive' }">{status}</span></h2>
+                <h2>Estado del Bot: <span class="{ 'active' if config.get('active_chat_id') else 'inactive' }" >{status}</span></h2>
                 <p><strong>Propietario ID:</strong> {config.get('owner_id', 'No configurado')}</p>
                 <p><strong>Chat ID Activo:</strong> {config.get('active_chat_id', 'No configurado')}</p>
                 <p><strong>Chats Configurados:</strong> {configured_chats_str}</p>
