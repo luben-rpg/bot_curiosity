@@ -345,10 +345,10 @@ class BotManager:
     async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error: {context.error}", exc_info=context.error)
         
-        if update and update.effective_message:
-            await update.effective_message.reply_text(
-                "❌ Ocurrió un error inesperado. Por favor, intenta nuevamente."
-            )
+        # if update and update.effective_message:
+        #     await update.effective_message.reply_text(
+        #         "❌ Ocurrió un error inesperado. Por favor, intenta nuevamente."
+        #     )
 
     async def config_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self.is_user_admin(update, context):
@@ -426,6 +426,23 @@ class BotManager:
         elif action == 'config_menu_main':
             await self.config_menu(update, context)
 
+async def _setup_telegram_app(app_instance: Application, bot_manager_instance: BotManager):
+    if WEBHOOK_URL:
+        logger.info(f"Configurando webhook: {WEBHOOK_URL}/webhook")
+        try:
+            await app_instance.bot.set_webhook(
+                url=f"{WEBHOOK_URL}/webhook",
+                secret_token=WEBHOOK_SECRET
+            )
+            logger.info("Webhook configurado exitosamente.")
+        except Exception as e:
+            logger.critical(f"Error al configurar webhook: {e}")
+            raise HTTPException(status_code=500, detail=f"Error al configurar webhook: {e}")
+    else:
+        logger.info("Modo polling activado (sin webhook")
+        # Iniciar polling en segundo plano
+        asyncio.create_task(run_polling())
+
 # Lifespan events para FastAPI
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -456,23 +473,10 @@ async def lifespan(app: FastAPI):
     telegram_app.add_handler(CommandHandler("listchats", bot_manager.list_chats_command)) # Nuevo handler
     telegram_app.add_handler(CommandHandler("config", bot_manager.config_menu)) 
     telegram_app.add_handler(CallbackQueryHandler(bot_manager.callback_handler)) 
-    telegram_app.add_error_handler(bot_manager.error_handler)
+    telegram_app.add_error_handler(bot_manager.error_handler) 
     
-    # Configurar webhook si está configurado
-    if WEBHOOK_URL:
-        logger.info(f"Configurando webhook: {WEBHOOK_URL}/webhook")
-        await telegram_app.bot.set_webhook(
-            url=f"{WEBHOOK_URL}/webhook",
-            secret_token=WEBHOOK_SECRET
-        )
-        
-        # Configurar jobs si ya hay un chat configurado
-        if bot_manager.config.get('chat_id'): # This is now active_chat_id, but still works for initial setup
-            await bot_manager.setup_daily_jobs(telegram_app)
-    else:
-        logger.info("Modo polling activado (sin webhook")
-        # Iniciar polling en segundo plano
-        asyncio.create_task(run_polling())
+    # Configurar webhook o polling
+    await _setup_telegram_app(telegram_app, bot_manager)
     
     yield
     
