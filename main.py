@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse, HTMLResponse
 from contextlib import asynccontextmanager
-from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from telegram.ext import Application, CommandHandler, ContextTypes, CallbackContext, CallbackQueryHandler
 from telegram.error import Forbidden, NetworkError
 
@@ -128,7 +128,7 @@ class BotManager:
             try:
                 await context.bot.send_message(
                     chat_id=chat_id, 
-                    text=f"📚 **Curiosidad sobre C**\n\n{fact}\n\n_🕐 {datetime.now().strftime('%H:%M')}",
+                    text=f"📚 **Curiosidad sobre C**\n\n{fact}\n\n_🕐 {datetime.now().strftime('%H:%M')}_",
                     parse_mode='Markdown'
                 )
                 logger.info(f"Curiosidad enviada al chat {chat_id}")
