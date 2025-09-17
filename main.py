@@ -112,11 +112,16 @@ class BotManager:
         """Configura los jobs diarios"""
         await self.remove_all_jobs(application)
         
-        # Programar 3 envíos diarios
+        # Programar 8 envíos diarios
         times = [
             time(hour=9, minute=0),   # 9:00 AM
+            time(hour=12, minute=0),  # 12:00 PM
             time(hour=15, minute=0),  # 3:00 PM
-            time(hour=21, minute=0)   # 9:00 PM
+            time(hour=18, minute=0),  # 6:00 PM
+            time(hour=21, minute=0),  # 9:00 PM
+            time(hour=0, minute=0),   # 12:00 AM
+            time(hour=3, minute=0),   # 3:00 AM
+            time(hour=6, minute=0)    # 6:00 AM
         ]
         
         for i, t in enumerate(times, 1):
@@ -136,10 +141,11 @@ class BotManager:
         if self.config.get('chat_id') == chat_id:
             await update.message.reply_text(
                 "✅ El bot ya está activo en este chat.\n\n"
-                "📅 Enviando 3 curiosidades diarias sobre C a las:\n"
-                "• 9:00 AM 🌅\n"
-                "• 3:00 PM ☀️\n" 
-                "• 9:00 PM 🌙\n\n"
+                "📅 Enviando 8 curiosidades diarias sobre C a las:\n"
+                "• 12:00 AM / PM 🌅\n"
+                "• 6:00 AM / PM  ☀️\n"
+                "• 3:00 PM / PM ☀️\n" 
+                "• 9:00 PM / AM 🌙\n\n"
                 "Usa /stop para detener el bot."
             )
             return
@@ -153,10 +159,11 @@ class BotManager:
 
         await update.message.reply_text(
             "🚀 **Bot activado exitosamente!**\n\n"
-            "📚 A partir de ahora enviaré 3 curiosidades diarias sobre el lenguaje C:\n"
-            "• 9:00 AM 🌅\n"
-            "• 3:00 PM ☀️\n"
-            "• 9:00 PM 🌙\n\n"
+            "📚 A partir de ahora enviaré 8 curiosidades diarias sobre el lenguaje C:\n"
+            "• 12:00 AM / PM 🌅\n"
+            "• 6:00 AM / PM  ☀️\n"
+            "• 3:00 PM / PM ☀️\n" 
+            "• 9:00 PM / AM 🌙\n\n"
             "💡 _Solo administradores pueden modificar esta configuración._\n"
             "❌ Usa /stop para detener el bot.",
             parse_mode='Markdown'
