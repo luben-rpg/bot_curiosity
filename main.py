@@ -37,7 +37,7 @@ LOCK_FILE = 'bot.lock'
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL") # Revertido a usar la variable de entorno
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "my-secret-token")
-PORT = int(os.getenv("PORT", 8001))
+PORT = int(os.getenv("PORT", 8080))
 
 # Variable global para la aplicación de Telegram
 telegram_app = None
