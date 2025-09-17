@@ -35,7 +35,7 @@ FACTS_JSON_FILE = 'facts.json' # Renombrado para claridad
 DATABASE_FILE = 'facts.db'
 LOCK_FILE = 'bot.lock'
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-WEBHOOK_URL = None # Forzamos el modo polling para depuración
+WEBHOOK_URL = os.getenv("WEBHOOK_URL") # Revertido a usar la variable de entorno
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "my-secret-token")
 PORT = int(os.getenv("PORT", 8001))
 
@@ -128,7 +128,7 @@ class BotManager:
             try:
                 await context.bot.send_message(
                     chat_id=chat_id, 
-                    text=f"📚 **Curiosidad sobre C**\n\n{fact}\n\n_🕐 {datetime.now().strftime('%H:%M')}_",
+                    text=f"📚 **Curiosidad sobre C**\n\n{fact}\n\n_🕐 {datetime.now().strftime('%H:%M')}",
                     parse_mode='Markdown'
                 )
                 logger.info(f"Curiosidad enviada al chat {chat_id}")
@@ -168,6 +168,19 @@ class BotManager:
                 name=f"daily_fact_{i}"
             )
 
+    async def set_main_keyboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        keyboard = [
+            [KeyboardButton("/status"), KeyboardButton("/addfact")],
+            [KeyboardButton("/listchats"), KeyboardButton("/config")],
+            [KeyboardButton("/stop"), KeyboardButton("/start")],
+        ]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+        await update.message.reply_text("Aquí tienes el teclado principal del bot.", reply_markup=reply_markup)
+
+    async def remove_main_keyboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        reply_markup = ReplyKeyboardRemove()
+        await update.message.reply_text("Teclado principal oculto.", reply_markup=reply_markup)
+
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         chat_id = update.effective_chat.id
@@ -202,6 +215,7 @@ class BotManager:
             parse_mode='Markdown'
         )
         logger.info(f"Bot configurado por propietario {user_id} en chat {chat_id}")
+        await self.set_main_keyboard(update, context) # Show main keyboard on start
 
     async def stop_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self.is_user_admin(update, context):
@@ -229,6 +243,7 @@ class BotManager:
                 parse_mode='Markdown'
             )
             logger.info(f"Bot detenido completamente por propietario {update.effective_user.id}")
+            await self.remove_main_keyboard(update, context) # Remove main keyboard on full stop
         else:
             await update.message.reply_text(
                 "🛑 **Bot detenido en este chat!**\n\n" 
@@ -473,7 +488,7 @@ async def lifespan(app: FastAPI):
     telegram_app.add_handler(CommandHandler("listchats", bot_manager.list_chats_command)) # Nuevo handler
     telegram_app.add_handler(CommandHandler("config", bot_manager.config_menu)) 
     telegram_app.add_handler(CallbackQueryHandler(bot_manager.callback_handler)) 
-    telegram_app.add_error_handler(bot_manager.error_handler) 
+    telegram_app.add_error_handler(bot_manager.error_handler)
     
     # Configurar webhook o polling
     await _setup_telegram_app(telegram_app, bot_manager)
