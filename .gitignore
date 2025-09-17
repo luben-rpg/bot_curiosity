@@ -1,0 +1,16 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+
+# Virtual environment
+.venv/
+
+# Log files
+bot.log
+*.log
+
+# Lock files
+*.lock
+
+# Environment variables
+.env

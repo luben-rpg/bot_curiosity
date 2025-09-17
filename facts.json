@@ -1,0 +1,15 @@
+
+{
+  "facts": [
+    "C es uno de los lenguajes de programación más antiguos y todavía se usa ampliamente. Fue desarrollado en 1972 por Dennis Ritchie en los Laboratorios Bell.",
+    "El núcleo (kernel) de sistemas operativos como Linux, Windows y macOS está escrito en gran parte en C.",
+    "C fue el primer lenguaje en introducir el concepto de 'portabilidad', lo que significa que su código puede ser compilado y ejecutado en diferentes máquinas con pocas o ninguna modificación.",
+    "El popular sistema de control de versiones 'Git' fue escrito originalmente por Linus Torvalds en C.",
+    "A diferencia de lenguajes más modernos, C no tiene un sistema de recolección de basura. El programador es responsable de asignar y liberar la memoria manualmente usando funciones como malloc() y free().",
+    "El primer compilador de C++ (Cfront) fue implementado en C.",
+    "El estándar oficial para el lenguaje C es mantenido por la Organización Internacional de Normalización (ISO).",
+    "Muchos otros lenguajes de programación como C++, C#, Python, y PHP toman prestada sintaxis y conceptos de C.",
+    "El famoso juego 'Doom' (1993) fue programado casi en su totalidad en C.",
+    "La función printf() no es parte del núcleo del lenguaje C, sino de su biblioteca estándar (stdio.h)."
+  ]
+}
