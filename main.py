@@ -86,7 +86,7 @@ class BotManager:
                 
                 for fact in facts_to_migrate:
                     try:
-                        cursor.execute("INSERT INTO facts (fact_text) VALUES (?)", (fact,))
+                        cursor.execute("INSERT INTO facts (fact_text) VALUES (?) ", (fact,))
                     except sqlite3.IntegrityError: # Manejar duplicados si los hubiera
                         logger.warning(f"Curiosidad duplicada no insertada: {fact[:50]}...")
                 conn.commit()
