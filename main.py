@@ -35,7 +35,7 @@ FACTS_JSON_FILE = 'facts.json' # Renombrado para claridad
 DATABASE_FILE = 'facts.db'
 LOCK_FILE = 'bot.lock'
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Ej: https://tudominio.com
+WEBHOOK_URL = None # Forzamos el modo polling para depuración
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "my-secret-token")
 PORT = int(os.getenv("PORT", 8001))
 
@@ -259,7 +259,8 @@ class BotManager:
         configured_chats_str = ", ".join(map(str, self.config.get('configured_chat_ids', []))) if self.config.get('configured_chat_ids') else "Ninguno"
 
         await update.message.reply_text(
-            f"""📊 **Estado del Bot**
+            f"""
+📊 **Estado del Bot**
 
 • Propietario: {owner_id}
 • Estado en este chat: {status_text}
@@ -427,7 +428,7 @@ class BotManager:
 
 # Lifespan events para FastAPI
 @asynccontextmanager
-def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI):
     if os.path.exists(LOCK_FILE):
         logger.error("Lock file exists. Another instance is likely running. Exiting.")
         raise RuntimeError("Lock file exists, exiting.")
