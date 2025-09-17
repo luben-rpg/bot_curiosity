@@ -185,13 +185,15 @@ class BotManager:
         user_id = update.effective_user.id
         chat_id = update.effective_chat.id
         
+        is_owner_already_set = self.config.get('owner_id') is not None
+
         # If owner_id is not set, the current user becomes the owner
-        if self.config.get('owner_id') is None:
+        if not is_owner_already_set:
             self.config['owner_id'] = user_id
             self._save_config() # Save immediately so other checks work
             logger.info(f"Owner ID set to {user_id}")
         
-        # Now, check if the current user is the owner
+        # Now, check if the current user is the owner (either newly set or existing)
         if not await self.is_user_admin(update, context):
             await update.message.reply_text("❌ Solo el propietario del bot puede configurar esto.")
             return
@@ -360,10 +362,10 @@ class BotManager:
     async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error: {context.error}", exc_info=context.error)
         
-        # if update and update.effective_message:
-        #     await update.effective_message.reply_text(
-        #         "❌ Ocurrió un error inesperado. Por favor, intenta nuevamente."
-        #     )
+        if update and update.effective_message:
+            await update.effective_message.reply_text(
+                "❌ Ocurrió un error inesperado. Por favor, intenta nuevamente."
+            )
 
     async def config_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self.is_user_admin(update, context):
